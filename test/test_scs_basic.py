@@ -4,95 +4,90 @@ import platform
 
 
 def import_error(msg):
-  print()
-  print('## IMPORT ERROR:' + msg)
-  print()
+    print()
+    print("## IMPORT ERROR:" + msg)
+    print()
 
 
 try:
-  from nose.tools import assert_raises, assert_almost_equals
+    import pytest
 except ImportError:
-  import_error('Please install nose to run tests.')
-  raise
+    import_error("Please install pytest to run tests.")
+    raise
 
 try:
-  import scs
+    import scs
 except ImportError:
-  import_error('You must install the scs module before running tests.')
-  raise
+    import_error("You must install the scs module before running tests.")
+    raise
 
 try:
-  import numpy as np
+    import numpy as np
+    from numpy.testing import assert_almost_equal
 except ImportError:
-  import_error('Please install numpy.')
-  raise
+    import_error("Please install numpy.")
+    raise
 
 try:
-  import scipy.sparse as sp
+    import scipy.sparse as sp
 except ImportError:
-  import_error('Please install scipy.')
-  raise
+    import_error("Please install scipy.")
+    raise
 
 # global data structures for problem
-c = np.array([-1.])
-b = np.array([1., -0.])
-A = sp.csc_matrix([1., -1.]).T.tocsc()
-data = {'A': A, 'b': b, 'c': c}
-cone = {'q': [], 'l': 2}
+c = np.array([-1.0])
+b = np.array([1.0, -0.0])
+A = sp.csc_matrix([1.0, -1.0]).T.tocsc()
+data = {"A": A, "b": b, "c": c}
 
-FAIL = 'Failure'  # scs code for failure
-
-
-def check_solution(solution, expected):
-  assert_almost_equals(solution, expected, places=2)
+FAIL = "Failure"  # scs code for failure
 
 
-def check_failure(sol):
-  assert sol['info']['status'] == FAIL
+@pytest.mark.parametrize(
+    "cone,use_indirect,expected",
+    [
+        ({"q": [], "l": 2}, False, 1),
+        ({"q": [], "l": 2}, True, 1),
+        ({"q": [2], "l": 0}, False, 0.5),
+        ({"q": [2], "l": 0}, True, 0.5),
+    ],
+)
+def test_problems(cone, use_indirect, expected):
+    sol = scs.solve(data, cone=cone, use_indirect=use_indirect, verbose=False)
+    assert_almost_equal(sol["x"][0], expected, decimal=2)
 
 
-def test_problems():
-  sol = scs.solve(data, cone, use_indirect=False)
-  yield check_solution, sol['x'][0], 1
+if platform.python_version_tuple() < ("3", "0", "0"):
 
-  new_cone = {'q': [2], 'l': 0}
-  sol = scs.solve(data, new_cone, use_indirect=False)
-  yield check_solution, sol['x'][0], 0.5
-
-  sol = scs.solve(data, cone, use_indirect=True)
-  yield check_solution, sol['x'][0], 1
-
-  sol = scs.solve(data, new_cone, use_indirect=True)
-  yield check_solution, sol['x'][0], 0.5
-
-
-if platform.python_version_tuple() < ('3', '0', '0'):
-
-  def test_problems_with_longs():
-    new_cone = {'q': [], 'l': long(2)}
-    sol = scs.solve(data, new_cone, use_indirect=False)
-    yield check_solution, sol['x'][0], 1
-    sol = scs.solve(data, new_cone, use_indirect=True)
-    yield check_solution, sol['x'][0], 1
-
-    new_cone = {'q': [long(2)], 'l': 0}
-    sol = scs.solve(data, new_cone, use_indirect=False)
-    yield check_solution, sol['x'][0], 0.5
-    sol = scs.solve(data, new_cone, use_indirect=True)
-    yield check_solution, sol['x'][0], 0.5
-
-
-def check_keyword(error_type, keyword, value):
-  assert_raises(error_type, scs.solve, data, cone, **{keyword: value})
+    @pytest.mark.parametrize(
+        "cone,use_indirect,expected",
+        [
+            ({"q": [], "l": long(2)}, False, 1),
+            ({"q": [], "l": long(2)}, True, 1),
+            ({"q": [long(2)], "l": 0}, False, 0.5),
+            ({"q": [long(2)], "l": 0}, True, 0.5),
+        ],
+    )
+    def test_problems_with_longs(cone, use_indirect, expected):
+        sol = scs.solve(data, cone=cone, use_indirect=use_indirect, verbose=False)
+        assert_almost_equal(sol["x"][0], expected, decimal=2)
 
 
 def test_failures():
-  yield assert_raises, TypeError, scs.solve
-  yield assert_raises, ValueError, scs.solve, data, {'q': [4], 'l': -2}
-  # disable this until win64 types figured out
-  # yield check_keyword, ValueError, 'max_iters', -1
-  # python 2.6 and before just cast float to int
-  if platform.python_version_tuple() >= ('2', '7', '0'):
-    yield check_keyword, TypeError, 'max_iters', 1.1
+    with pytest.raises(TypeError):
+        scs.solve()
 
-  yield check_failure, scs.solve(data, {'q': [1], 'l': 0})
+    with pytest.raises(ValueError):
+        scs.solve(data, {"q": [4], "l": -2})
+
+    # disable this until win64 types figured out
+    # with pytest.raises(ValueError)
+    # scs.solve(data, {'q': [], 'l': 2}, max_iters=-1)
+
+    # python 2.6 and before just cast float to int
+    if platform.python_version_tuple() >= ("2", "7", "0"):
+        with pytest.raises(TypeError):
+            scs.solve(data, {"q": [], "l": 2}, max_iters=1.1)
+
+    sol = scs.solve(data, {"q": [1], "l": 0}, verbose=False)
+    assert sol["info"]["status"] == FAIL
